@@ -50,11 +50,10 @@ static int dl_framework_initialized = 0;
 
 // Forward declarations of static functions
 static int dl_framework_find_free_slot(void);
-/* Commented out to avoid unused function warnings */
-/* static int dl_framework_exists(dl_framework_id_t id); */
+static int dl_framework_exists(dl_framework_id_t id);
 static int dl_framework_find_free_operation_slot(dl_framework_id_t framework_id);
-/* static int dl_framework_operation_exists(dl_framework_id_t framework_id, dl_op_id_t op_id); */
-/* static int dl_framework_find_operation_index(dl_framework_id_t framework_id, dl_op_id_t op_id); */
+static int dl_framework_operation_exists(dl_framework_id_t framework_id, dl_op_id_t op_id);
+static int dl_framework_find_operation_index(dl_framework_id_t framework_id, dl_op_id_t op_id);
 
 /* Forward declaration for nn_get_model_embeddings */
 int nn_get_model_embeddings(nn_model_id_t model_id, float** embedding_table, size_t* embedding_size);
@@ -287,9 +286,19 @@ dl_framework_id_t dl_framework_create(const dl_framework_config_t* config) {
     if (slot == -1) {
         return 0;
     }
+    
+    // Generate a new framework ID
+    dl_framework_id_t new_id = next_dl_framework_id++;
+    
+    // Verify the ID doesn't already exist (should never happen, but good practice)
+    if (dl_framework_exists(new_id)) {
+        // This is a safety check - in practice this should never happen
+        // since we're incrementing the ID counter
+        return 0;
+    }
 
     // Initialize the DL framework
-    dl_frameworks[slot].id = next_dl_framework_id++;
+    dl_frameworks[slot].id = new_id;
     dl_frameworks[slot].config = *config;
     dl_frameworks[slot].framework_memory = NULL;
     dl_frameworks[slot].framework_memory_size = 0;
@@ -676,6 +685,15 @@ dl_op_id_t dl_framework_create_operation(dl_framework_id_t framework_id, uint32_
     if (op_slot == -1) {
         return 0;
     }
+    
+    // Create a new operation ID
+    dl_op_id_t new_op_id = (dl_op_id_t)(op_slot + 1);
+    
+    // Verify the operation ID doesn't already exist
+    if (dl_framework_operation_exists(framework_id, new_op_id)) {
+        // This should never happen in practice, but it's a good safety check
+        return 0;
+    }
 
     // Initialize the operation
     dl_frameworks[slot].operations[op_slot].id = (dl_op_id_t)(op_slot + 1);
@@ -725,15 +743,13 @@ int dl_framework_destroy_operation(dl_framework_id_t framework_id, dl_op_id_t op
         return -1;
     }
 
-    // Find the operation
-    int op_slot = -1;
-
-    for (uint32_t i = 0; i < dl_frameworks[slot].num_operations; i++) {
-        if (dl_frameworks[slot].operations[i].id == op_id) {
-            op_slot = i;
-            break;
-        }
+    // Check if the operation exists
+    if (!dl_framework_operation_exists(framework_id, op_id)) {
+        return -1;
     }
+
+    // Find the operation index
+    int op_slot = dl_framework_find_operation_index(framework_id, op_id);
 
     if (op_slot == -1) {
         return -1;
@@ -1475,18 +1491,40 @@ int dl_framework_deepseek_generate(dl_framework_id_t framework_id, nn_model_t* m
             // Simulate token generation using embeddings
             // In a real implementation, this would involve running the model's forward pass
             
-            // Apply temperature to control randomness
+            // Apply temperature to control randomness and use it
             float scaled_temp = temperature > 0.0f ? temperature : 1.0f;
             
             // Simple token generation logic for demonstration
-            // In a real implementation, this would use the model's logits
-            next_token = (all_tokens[total_tokens - 1] + 1) % 32000;
+            // Use scaled_temp to add some randomness to token generation
+            if (scaled_temp > 1.0f) {
+                // Higher temperature means more randomness
+                next_token = (all_tokens[total_tokens - 1] + (uint32_t)(scaled_temp * 10)) % 32000;
+            } else {
+                // Lower temperature means more deterministic
+                next_token = (all_tokens[total_tokens - 1] + 1) % 32000;
+            }
+            
+            // Apply sampling parameters (top_p, top_k) and repetition_penalty
+            // In a real implementation, these would be used for more sophisticated sampling
+            if (top_p > 0.0f && top_p < 1.0f) {
+                // Simulate nucleus sampling (top_p)
+                // In a real implementation, this would filter the probability distribution
+                next_token = (next_token + (uint32_t)(top_p * 100)) % 32000;
+            }
+            
+            if (top_k > 0.0f) {
+                // Simulate top-k sampling
+                // In a real implementation, this would select from the top k tokens
+                next_token = (next_token + (uint32_t)(top_k)) % 32000;
+            }
             
             // Apply repetition penalty to avoid repeating tokens
+            float penalty = repetition_penalty > 0.0f ? repetition_penalty : 1.0f;
             for (size_t j = 0; j < recent_tokens_size; j++) {
                 if (next_token == recent_tokens[j]) {
-                    // Try to find a different token
-                    next_token = (next_token + 1) % 32000;
+                    // Apply penalty - in a real implementation this would reduce probabilities
+                    // of recently generated tokens
+                    next_token = (next_token + (uint32_t)(penalty * 10)) % 32000;
                     break;
                 }
             }

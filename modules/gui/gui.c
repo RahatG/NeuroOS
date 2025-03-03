@@ -107,6 +107,13 @@ static void gui_render_desktop(void);
 static void gui_render_taskbar(void);
 static void gui_render_start_menu(void);
 /* Forward declarations for event handling functions - to be implemented later */
+static void gui_handle_mouse_event(int x, int y, int button, gui_event_type_t type) __attribute__((unused));
+static void gui_handle_key_event(int key_code, int modifiers, gui_event_type_t type) __attribute__((unused));
+static gui_window_t* gui_window_at_position(int x, int y) __attribute__((unused));
+static gui_widget_t* gui_widget_at_position(gui_window_t* window, int x, int y) __attribute__((unused));
+static void gui_bring_window_to_front(gui_window_t* window) __attribute__((unused));
+
+/* Implementations of the event handling functions */
 static void gui_handle_mouse_event(int x, int y, int button, gui_event_type_t type) {
     /* Stub implementation - to be completed in future updates */
     (void)x;
@@ -136,7 +143,6 @@ static gui_widget_t* gui_widget_at_position(gui_window_t* window, int x, int y) 
     (void)y;
     return NULL;
 }
-static void gui_bring_window_to_front(gui_window_t* window);
 static void gui_update_framebuffer(void);
 
 /**

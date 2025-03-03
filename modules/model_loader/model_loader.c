@@ -72,6 +72,7 @@ static int model_loader_find_free_model_slot(void) {
  * @param id: Model ID
  * @return: 1 if the model exists, 0 otherwise
  */
+/* Commented out to avoid unused function warning
 static int model_loader_model_exists(model_id_t id) {
     for (int i = 0; i < MAX_MODELS; i++) {
         if (models[i].loaded && models[i].id == id) {
@@ -81,6 +82,7 @@ static int model_loader_model_exists(model_id_t id) {
     
     return 0;
 }
+*/
 
 /**
  * Helper function to find a key in JSON data

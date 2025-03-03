@@ -57,3 +57,6 @@ align 16
 stack_bottom:
     resb 16384 ; 16 KiB
 stack_top:
+
+; Add a .note.GNU-stack section to indicate non-executable stack
+section .note.GNU-stack noalloc noexec nowrite progbits

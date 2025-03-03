@@ -16,6 +16,8 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <time.h>
+#include <ctype.h>  /* For isdigit() */
+#include <sys/time.h> /* For utimes() */
 
 // Shell state
 static int shell_initialized = 0;
@@ -31,7 +33,7 @@ static size_t shell_command_count = 0;
 
 // Forward declarations of static functions
 static int shell_find_command(const char* name);
-static int shell_execute_builtin(const char* name, int argc, char** argv);
+static int shell_execute_builtin(const char* name, int argc, char** argv) __attribute__((unused));
 static int shell_execute_external(const char* name, int argc, char** argv);
 static int shell_find_executable(const char* name, char* path, size_t path_size);
 
@@ -532,6 +534,54 @@ static int shell_execute_builtin(const char* name, int argc, char** argv) {
  * @param argv: Argument array
  * @return: Command exit code
  */
+static int shell_execute_external(const char* name, int argc, char** argv) {
+    // Unused parameter
+    (void)argc;
+    
+    // Check if the Shell is initialized
+    if (!shell_initialized) {
+        return -1;
+    }
+    
+    // Check if the command exists in the PATH
+    char path[256];
+    if (shell_find_executable(name, path, sizeof(path)) != 0) {
+        shell_printf("Error: Command not found: %s\n", name);
+        return -1;
+    }
+    
+    // Create a new process
+    int pid = fork();
+    
+    if (pid < 0) {
+        // Fork failed
+        shell_printf("Error: Failed to create process\n");
+        return -1;
+    } else if (pid == 0) {
+        // Child process
+        
+        // Execute the command
+        execv(path, argv);
+        
+        // If execv returns, it failed
+        shell_printf("Error: Failed to execute command: %s\n", name);
+        exit(1);
+    } else {
+        // Parent process
+        
+        // Wait for the child process to exit
+        int status;
+        waitpid(pid, &status, 0);
+        
+        // Return the exit code
+        if (WIFEXITED(status)) {
+            return WEXITSTATUS(status);
+        } else {
+            return -1;
+        }
+    }
+}
+
 /**
  * Find an executable in the PATH
  * 
@@ -594,51 +644,6 @@ static int shell_find_executable(const char* name, char* path, size_t path_size)
     return -1;
 }
 
-static int shell_execute_external(const char* name, int argc, char** argv) {
-    // Check if the Shell is initialized
-    if (!shell_initialized) {
-        return -1;
-    }
-    
-    // Check if the command exists in the PATH
-    char path[256];
-    if (shell_find_executable(name, path, sizeof(path)) != 0) {
-        shell_printf("Error: Command not found: %s\n", name);
-        return -1;
-    }
-    
-    // Create a new process
-    int pid = fork();
-    
-    if (pid < 0) {
-        // Fork failed
-        shell_printf("Error: Failed to create process\n");
-        return -1;
-    } else if (pid == 0) {
-        // Child process
-        
-        // Execute the command
-        execv(path, argv);
-        
-        // If execv returns, it failed
-        shell_printf("Error: Failed to execute command: %s\n", name);
-        exit(1);
-    } else {
-        // Parent process
-        
-        // Wait for the child process to exit
-        int status;
-        waitpid(pid, &status, 0);
-        
-        // Return the exit code
-        if (WIFEXITED(status)) {
-            return WEXITSTATUS(status);
-        } else {
-            return -1;
-        }
-    }
-}
-
 /**
  * Run the shell
  * 
@@ -687,6 +692,10 @@ int shell_run(void) {
  * @return: Command exit code
  */
 int shell_cmd_help(int argc, char** argv) {
+    // Unused parameters
+    (void)argc;
+    (void)argv;
+    
     // Check if the Shell is initialized
     if (!shell_initialized) {
         return -1;
@@ -710,6 +719,10 @@ int shell_cmd_help(int argc, char** argv) {
  * @return: Command exit code
  */
 int shell_cmd_exit(int argc, char** argv) {
+    // Unused parameters
+    (void)argc;
+    (void)argv;
+    
     // Check if the Shell is initialized
     if (!shell_initialized) {
         return -1;
@@ -785,7 +798,20 @@ int shell_cmd_cd(int argc, char** argv) {
     // Update the shell prompt
     char cwd[256];
     if (getcwd(cwd, sizeof(cwd)) != NULL) {
-        snprintf(shell_prompt, sizeof(shell_prompt), "NeuroOS:%s> ", cwd);
+        // Limit path length to avoid format truncation warning
+        char short_path[48] = ""; // Leave room for "NeuroOS:" prefix and "> " suffix
+        
+            // Always truncate the path if needed to fit in the buffer
+            size_t cwd_len = strlen(cwd);
+            if (cwd_len > 45) {
+                // Path is too long, truncate it with "..."
+                snprintf(short_path, sizeof(short_path), "...%s", cwd + cwd_len - 45);
+            } else {
+                // Path is short enough, copy it directly
+                memcpy(short_path, cwd, cwd_len + 1); // +1 for null terminator
+            }
+        
+        snprintf(shell_prompt, sizeof(shell_prompt), "NeuroOS:%s> ", short_path);
     }
     
     return 0;
@@ -799,6 +825,10 @@ int shell_cmd_cd(int argc, char** argv) {
  * @return: Command exit code
  */
 int shell_cmd_pwd(int argc, char** argv) {
+    // Unused parameters
+    (void)argc;
+    (void)argv;
+    
     // Check if the Shell is initialized
     if (!shell_initialized) {
         return -1;
@@ -1301,7 +1331,6 @@ int shell_cmd_grep(int argc, char** argv) {
     const char* pattern = argv[1];
     
     // Process each file
-    int exit_code = 0;
     int match_found = 0;
     
     for (int i = 2; i < argc; i++) {
@@ -1310,7 +1339,6 @@ int shell_cmd_grep(int argc, char** argv) {
         
         if (!file) {
             shell_printf("Error: Failed to open file '%s'\n", argv[i]);
-            exit_code = -1;
             continue;
         }
         
@@ -1428,6 +1456,10 @@ int shell_cmd_find(int argc, char** argv) {
  * @return: Command exit code
  */
 int shell_cmd_history(int argc, char** argv) {
+    // Unused parameters
+    (void)argc;
+    (void)argv;
+    
     // Check if the Shell is initialized
     if (!shell_initialized) {
         return -1;
@@ -1458,6 +1490,10 @@ int shell_cmd_history(int argc, char** argv) {
  * @return: Command exit code
  */
 int shell_cmd_clear(int argc, char** argv) {
+    // Unused parameters
+    (void)argc;
+    (void)argv;
+    
     // Check if the Shell is initialized
     if (!shell_initialized) {
         return -1;
@@ -1477,6 +1513,10 @@ int shell_cmd_clear(int argc, char** argv) {
  * @return: Command exit code
  */
 int shell_cmd_date(int argc, char** argv) {
+    // Unused parameters
+    (void)argc;
+    (void)argv;
+    
     // Check if the Shell is initialized
     if (!shell_initialized) {
         return -1;
@@ -1517,6 +1557,10 @@ int shell_cmd_date(int argc, char** argv) {
  * @return: Command exit code
  */
 int shell_cmd_ps(int argc, char** argv) {
+    // Unused parameters
+    (void)argc;
+    (void)argv;
+    
     // Check if the Shell is initialized
     if (!shell_initialized) {
         return -1;

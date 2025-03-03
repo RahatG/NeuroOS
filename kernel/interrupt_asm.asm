@@ -162,3 +162,6 @@ idt_flush:
     mov eax, [esp+4]  ; In 32-bit, first parameter is on the stack
     lidt [eax]        ; Load the IDT
     ret
+
+; Add a .note.GNU-stack section to indicate non-executable stack
+section .note.GNU-stack noalloc noexec nowrite progbits

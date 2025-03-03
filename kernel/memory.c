@@ -9,6 +9,7 @@
 #include "include/console.h"
 #include <string.h>
 #include <stdlib.h>
+#include <stdint.h>
 
 // Memory map entry structure
 typedef struct {
@@ -147,7 +148,7 @@ static int init_page_tables(void) {
     }
     
     // Load the page table root into CR3
-    __asm__ volatile("movl %0, %%cr3" : : "r"((uint32_t)page_table_root));
+    __asm__ volatile("movl %0, %%cr3" : : "r"((uint32_t)(uintptr_t)page_table_root) : "memory");
     
     return 0;
 }
@@ -182,8 +183,8 @@ static int init_kernel_heap(void) {
     }
     
     // Initialize the kernel heap pointers
-    kernel_heap_start = (void*)heap_start;
-    kernel_heap_end = (void*)(heap_start + heap_size);
+    kernel_heap_start = (void*)(uintptr_t)heap_start;
+    kernel_heap_end = (void*)(uintptr_t)(heap_start + heap_size);
     kernel_heap_current = kernel_heap_start;
     
     return 0;
@@ -199,7 +200,7 @@ static void* allocate_physical_page(void) {
     for (size_t i = 0; i < memory_map_entries_count; i++) {
         if (memory_map_entries_array && memory_map_entries_array[i].type == 1 && memory_map_entries_array[i].length >= PAGE_SIZE) {
             // Found a free page
-            void* page = (void*)memory_map_entries_array[i].base_addr;
+            void* page = (void*)(uintptr_t)memory_map_entries_array[i].base_addr;
             
             // Update the memory map
             memory_map_entries_array[i].base_addr += PAGE_SIZE;
@@ -236,7 +237,7 @@ static int map_page(uint64_t virt_addr, uint64_t phys_addr, uint64_t flags) {
     
     if (*pml4e & PTE_PRESENT) {
         // PDPT already exists
-        pdpt = (pt_t)(*pml4e & ~0xFFF);
+        pdpt = (pt_t)(uintptr_t)(*pml4e & ~0xFFF);
     } else {
         // Allocate a new PDPT
         pdpt = (pt_t)allocate_physical_page();
@@ -245,7 +246,7 @@ static int map_page(uint64_t virt_addr, uint64_t phys_addr, uint64_t flags) {
         }
         
         // Set the PML4 entry
-        *pml4e = (pte_t)pdpt | PTE_PRESENT | PTE_WRITABLE | PTE_USER;
+        *pml4e = (pte_t)(uintptr_t)pdpt | PTE_PRESENT | PTE_WRITABLE | PTE_USER;
     }
     
     // Get the PDPT entry
@@ -254,7 +255,7 @@ static int map_page(uint64_t virt_addr, uint64_t phys_addr, uint64_t flags) {
     
     if (*pdpte & PTE_PRESENT) {
         // PD already exists
-        pd = (pt_t)(*pdpte & ~0xFFF);
+        pd = (pt_t)(uintptr_t)(*pdpte & ~0xFFF);
     } else {
         // Allocate a new PD
         pd = (pt_t)allocate_physical_page();
@@ -263,7 +264,7 @@ static int map_page(uint64_t virt_addr, uint64_t phys_addr, uint64_t flags) {
         }
         
         // Set the PDPT entry
-        *pdpte = (pte_t)pd | PTE_PRESENT | PTE_WRITABLE | PTE_USER;
+        *pdpte = (pte_t)(uintptr_t)pd | PTE_PRESENT | PTE_WRITABLE | PTE_USER;
     }
     
     // Get the PD entry
@@ -272,7 +273,7 @@ static int map_page(uint64_t virt_addr, uint64_t phys_addr, uint64_t flags) {
     
     if (*pde & PTE_PRESENT) {
         // PT already exists
-        pt = (pt_t)(*pde & ~0xFFF);
+        pt = (pt_t)(uintptr_t)(*pde & ~0xFFF);
     } else {
         // Allocate a new PT
         pt = (pt_t)allocate_physical_page();
@@ -281,7 +282,7 @@ static int map_page(uint64_t virt_addr, uint64_t phys_addr, uint64_t flags) {
         }
         
         // Set the PD entry
-        *pde = (pte_t)pt | PTE_PRESENT | PTE_WRITABLE | PTE_USER;
+        *pde = (pte_t)(uintptr_t)pt | PTE_PRESENT | PTE_WRITABLE | PTE_USER;
     }
     
     // Set the PT entry
@@ -312,7 +313,7 @@ static int unmap_page(uint64_t virt_addr) {
     }
     
     // Get the PDPT
-    pt_t pdpt = (pt_t)(*pml4e & ~0xFFF);
+    pt_t pdpt = (pt_t)(uintptr_t)(*pml4e & ~0xFFF);
     pte_t* pdpte = &pdpt[pdpt_idx];
     
     if (!(*pdpte & PTE_PRESENT)) {
@@ -321,7 +322,7 @@ static int unmap_page(uint64_t virt_addr) {
     }
     
     // Get the PD
-    pt_t pd = (pt_t)(*pdpte & ~0xFFF);
+    pt_t pd = (pt_t)(uintptr_t)(*pdpte & ~0xFFF);
     pte_t* pde = &pd[pd_idx];
     
     if (!(*pde & PTE_PRESENT)) {
@@ -330,7 +331,7 @@ static int unmap_page(uint64_t virt_addr) {
     }
     
     // Get the PT
-    pt_t pt = (pt_t)(*pde & ~0xFFF);
+    pt_t pt = (pt_t)(uintptr_t)(*pde & ~0xFFF);
     pte_t* pte = &pt[pt_idx];
     
     if (!(*pte & PTE_PRESENT)) {
@@ -342,7 +343,7 @@ static int unmap_page(uint64_t virt_addr) {
     *pte = 0;
     
     // Invalidate the TLB entry
-    __asm__ volatile("invlpg (%0)" : : "r"(virt_addr) : "memory");
+    __asm__ volatile("invlpg (%0)" : : "r"((uint32_t)virt_addr) : "memory");
     
     return 0;
 }
@@ -431,7 +432,7 @@ void* memory_alloc_aligned(size_t size, size_t alignment) {
     kernel_heap_current = (uint8_t*)kernel_heap_current + total_size;
     
     // Calculate the aligned address
-    void* aligned_addr = (void*)(((uint64_t)addr + alignment - 1) & ~(alignment - 1));
+    void* aligned_addr = (void*)(((uintptr_t)addr + alignment - 1) & ~(alignment - 1));
     
     // Set the memory protection
     if (memory_set_protection(addr, total_size, MEMORY_PROT_READ | MEMORY_PROT_WRITE) != 0) {
@@ -542,7 +543,7 @@ void memory_free(void* ptr, size_t size) {
             free(curr);
             
             // Unmap the pages
-            for (uint64_t virt_addr = (uint64_t)ptr; virt_addr < (uint64_t)ptr + (size == 0 ? curr->size : size); virt_addr += PAGE_SIZE) {
+            for (uint64_t virt_addr = (uintptr_t)ptr; virt_addr < (uintptr_t)ptr + (size == 0 ? curr->size : size); virt_addr += PAGE_SIZE) {
                 unmap_page(virt_addr);
             }
             
@@ -583,7 +584,7 @@ void* memory_resize(void* addr, size_t old_size, size_t new_size) {
                 alloc->size = new_size;
                 
                 // Unmap the extra pages
-                for (uint64_t virt_addr = (uint64_t)addr + new_size; virt_addr < (uint64_t)addr + old_size; virt_addr += PAGE_SIZE) {
+                for (uint64_t virt_addr = (uintptr_t)addr + new_size; virt_addr < (uintptr_t)addr + old_size; virt_addr += PAGE_SIZE) {
                     if (unmap_page(virt_addr) != 0) {
                         return NULL;
                     }
@@ -670,7 +671,7 @@ int memory_set_protection(void* addr, size_t size, memory_prot_t protection) {
     size = (size + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
     
     // Set the protection for each page
-    for (uint64_t virt_addr = (uint64_t)addr; virt_addr < (uint64_t)addr + size; virt_addr += PAGE_SIZE) {
+    for (uint64_t virt_addr = (uintptr_t)addr; virt_addr < (uintptr_t)addr + size; virt_addr += PAGE_SIZE) {
         // Get the page table indices
         uint64_t pml4_idx = (virt_addr >> 39) & 0x1FF;
         uint64_t pdpt_idx = (virt_addr >> 30) & 0x1FF;
@@ -686,7 +687,7 @@ int memory_set_protection(void* addr, size_t size, memory_prot_t protection) {
         }
         
         // Get the PDPT
-        pt_t pdpt = (pt_t)(*pml4e & ~0xFFF);
+        pt_t pdpt = (pt_t)(uintptr_t)(*pml4e & ~0xFFF);
         pte_t* pdpte = &pdpt[pdpt_idx];
         
         if (!(*pdpte & PTE_PRESENT)) {
@@ -695,7 +696,7 @@ int memory_set_protection(void* addr, size_t size, memory_prot_t protection) {
         }
         
         // Get the PD
-        pt_t pd = (pt_t)(*pdpte & ~0xFFF);
+        pt_t pd = (pt_t)(uintptr_t)(*pdpte & ~0xFFF);
         pte_t* pde = &pd[pd_idx];
         
         if (!(*pde & PTE_PRESENT)) {
@@ -704,7 +705,7 @@ int memory_set_protection(void* addr, size_t size, memory_prot_t protection) {
         }
         
         // Get the PT
-        pt_t pt = (pt_t)(*pde & ~0xFFF);
+        pt_t pt = (pt_t)(uintptr_t)(*pde & ~0xFFF);
         pte_t* pte = &pt[pt_idx];
         
         if (!(*pte & PTE_PRESENT)) {
@@ -731,7 +732,7 @@ int memory_set_protection(void* addr, size_t size, memory_prot_t protection) {
         *pte = flags;
         
         // Invalidate the TLB entry
-        __asm__ volatile("invlpg (%0)" : : "r"(virt_addr) : "memory");
+        __asm__ volatile("invlpg (%0)" : : "r"((uint32_t)virt_addr) : "memory");
     }
     
     return 0;
@@ -751,7 +752,7 @@ int memory_get_protection(void* addr, memory_prot_t* protection) {
     }
     
     // Get the page table indices
-    uint64_t virt_addr = (uint64_t)addr;
+    uint64_t virt_addr = (uintptr_t)addr;
     uint64_t pml4_idx = (virt_addr >> 39) & 0x1FF;
     uint64_t pdpt_idx = (virt_addr >> 30) & 0x1FF;
     uint64_t pd_idx = (virt_addr >> 21) & 0x1FF;
@@ -766,7 +767,7 @@ int memory_get_protection(void* addr, memory_prot_t* protection) {
     }
     
     // Get the PDPT
-    pt_t pdpt = (pt_t)(*pml4e & ~0xFFF);
+    pt_t pdpt = (pt_t)(uintptr_t)(*pml4e & ~0xFFF);
     pte_t* pdpte = &pdpt[pdpt_idx];
     
     if (!(*pdpte & PTE_PRESENT)) {
@@ -775,7 +776,7 @@ int memory_get_protection(void* addr, memory_prot_t* protection) {
     }
     
     // Get the PD
-    pt_t pd = (pt_t)(*pdpte & ~0xFFF);
+    pt_t pd = (pt_t)(uintptr_t)(*pdpte & ~0xFFF);
     pte_t* pde = &pd[pd_idx];
     
     if (!(*pde & PTE_PRESENT)) {
@@ -784,7 +785,7 @@ int memory_get_protection(void* addr, memory_prot_t* protection) {
     }
     
     // Get the PT
-    pt_t pt = (pt_t)(*pde & ~0xFFF);
+    pt_t pt = (pt_t)(uintptr_t)(*pde & ~0xFFF);
     pte_t* pte = &pt[pt_idx];
     
     if (!(*pte & PTE_PRESENT)) {
@@ -892,7 +893,8 @@ uint64_t memory_virtual_to_physical(void* virtual_addr) {
     }
     
     // Get the page table indices
-    uint64_t virt_addr = (uint64_t)virtual_addr;
+    uintptr_t addr_val = (uintptr_t)virtual_addr;
+    uint64_t virt_addr = (uint64_t)addr_val;
     uint64_t offset = virt_addr & 0xFFF;
     uint64_t pml4_idx = (virt_addr >> 39) & 0x1FF;
     uint64_t pdpt_idx = (virt_addr >> 30) & 0x1FF;
@@ -908,7 +910,8 @@ uint64_t memory_virtual_to_physical(void* virtual_addr) {
     }
     
     // Get the PDPT
-    pt_t pdpt = (pt_t)(*pml4e & ~0xFFF);
+    uintptr_t pdpt_addr = (uintptr_t)(*pml4e & ~0xFFF);
+    pt_t pdpt = (pt_t)pdpt_addr;
     pte_t* pdpte = &pdpt[pdpt_idx];
     
     if (!(*pdpte & PTE_PRESENT)) {
@@ -922,7 +925,8 @@ uint64_t memory_virtual_to_physical(void* virtual_addr) {
     }
     
     // Get the PD
-    pt_t pd = (pt_t)(*pdpte & ~0xFFF);
+    uintptr_t pd_addr = (uintptr_t)(*pdpte & ~0xFFF);
+    pt_t pd = (pt_t)pd_addr;
     pte_t* pde = &pd[pd_idx];
     
     if (!(*pde & PTE_PRESENT)) {
@@ -936,7 +940,8 @@ uint64_t memory_virtual_to_physical(void* virtual_addr) {
     }
     
     // Get the PT
-    pt_t pt = (pt_t)(*pde & ~0xFFF);
+    uintptr_t pt_addr = (uintptr_t)(*pde & ~0xFFF);
+    pt_t pt = (pt_t)pt_addr;
     pte_t* pte = &pt[pt_idx];
     
     if (!(*pte & PTE_PRESENT)) {
